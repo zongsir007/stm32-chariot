@@ -1,0 +1,34 @@
+1config.h（）宏定义
+一、CAN总线与电机ID
+CAN_BUS_HANDLE		//stm32的can控制器，此处为CAN1
+MOTOR_XX_ID			//张大头电机的ID，貌似有默认，需要确认
+MOTOR_FEEDBACK_BASE_ID		//四个电机回传的起始ID，需要确认
+
+二、舵机PWM配置
+SERVO_TIM_HANDLE		//舵机的定时器依赖，用的是tim2
+
+脉宽定义（需要调整舵机转角大小时改变）
+SERVO_MIN_PULSE        500   // 0度
+SERVO_MID_PULSE        1500  // 90度
+SERVO_MAX_PULSE        2500  // 180度
+三、超声波和巡线
+
+US1_TRIG_PORT		// 触发信号输出端口，需确认
+US1_TRIG_PIN	   //触发信号引脚，需确认
+回响引脚同
+
+GPIOE		//左侧巡线端口，需确认
+LINE_L_PIN             GPIO_PIN_0	//左侧巡线引脚，需确认
+
+四、调试内容
+B.运行速度
+调试参数: WHEEL_SPEED_MAX。
+
+建议: 第一次下地跑，把这个值改小（比如设为 1000），等确认转向和前后逻辑正确后，再逐步提高到 4000 或更高。
+
+C. 避障灵敏度
+调试参数: SAFE_DISTANCE。
+场景: 如果发现小车离障碍物很远就停了，减小它；如果小车总是撞上去才反应，增大它。
+D. 控制频率 (进阶)
+调试参数: PID_PERIOD_MS。
+说明: 越小意味着控制越频繁（响应快），但过小会增加 MCU 负担并可能导致 CAN 总线拥堵。通常 10ms (100Hz) 对小车来说是很稳妥的。

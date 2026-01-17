@@ -1,0 +1,20 @@
+Project_Root/
+├── Core/                         			# CubeMX生成的底层代码
+│   ├── Src/ (main.c, stm32f4xx_it.c 等)
+│   └── Inc/ (stm32f4xx_it.h 等)
+├── UserApp/                      			# 用户自定义应用层 (核心开发区)
+│   ├── Inc/                      			# 所有自定义头文件
+│   │   ├── config.h              		# 核心：参数宏定义 (ID、PID参数、引脚)
+│   │   ├── motor_driver.h        		# 电机驱动头文件
+│   │   ├── sensor_manager.h      	# 传感器处理头文件，超声波和巡线*2
+│   │   ├── servo_control.h       		# 舵机控制头文件
+│   │   └── motion_control.h      		# 运动算法(PID/运动学)
+│   └── Src/                      			# 所有自定义源文件
+│       ├── motor_driver.c        		# CAN报文解析、电机指令发送
+│       ├── sensor_manager.c      		# 超声波(捕获)、巡线读取逻辑
+│       ├── servo_control.c       		# PWM占空比换算与输出
+│       ├── motion_control.c      		# PID实现、小车前进/后退/旋转算法
+│       └── app_main.c           		 # 用户任务主逻辑 (被main.c调用)
+└── Drivers/                      			# HAL库与CMSIS (CubeMX自动生成)
+
+

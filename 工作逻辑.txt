@@ -1,0 +1,44 @@
+文件名,				核心职责 (Task),							关键实现函数
+app_main.c,			大脑/决策层。负责任务调度和逻辑判断。		User_App_Task(): 时间片轮询调度任务。User_App_Init(): 统一初始化。
+motion_control.c,		控制层将运动意图转化为轮子速度。,			"Chassis_Drive(v, w): 差速模型叠加公式。Move_Forward()/Stop(): 运动模组函数。"
+motor_driver.c,		执行层/闭环层。负责 PID 计算与 CAN 通讯。,	PID_Compute(): 误差补偿核心算法。Motor_Send_Control_Group(): 发送控制报文。
+sensor_manager.c,		感知层。负责传感器信号采集与换算。,			Ultrasonic_GetDistance(): 声波时差换算。Get_Line_Status(): 巡线 GPIO 状态读取。
+config.h,				配置层。存放引脚定义、物理限值和常量。,"N/A (宏定义：如 SAFE_DISTANCE, PID_KP)"
+
+1. 感知数据流 (Sensors -> Brain)
+过程：sensor_manager.c 通过读取硬件引脚得到距离数值。
+
+传输：app_main.c 调用 Ultrasonic_GetDistance()，将结果存入全局变量 current_dist。
+
+作用：决策层根据 current_dist 的值决定是否进入避障模式。
+
+2. 控制指令流 (Brain -> Controller -> Motor)
+过程：app_main.c 决定巡线方向 -> 调用 motion_control.c 中的 Chassis_Drive。
+
+计算：motion_control.c 计算出左/右轮的目标 RPM，并传给 motor_driver.c。
+
+闭环：motor_driver.c 获取目标后，结合 CAN 接收到的实际 RPM，通过 PID_Compute 计算出最终电压/电流。
+
+3. 反馈数据流 (Hardware -> Motor -> Brain)
+过程：电机通过 CAN 回传数据包。
+
+处理：motor_driver.c 中的中断回调函数解析报文，更新 Motor_Stats 结构体。
+
+三、 它们是如何共同起作用的？（以避障为例）
+
+传感器层 (sensor_manager.c)： htim5 正在计时，Ultrasonic_GetDistance 计算出距离为 15.0f (cm)。
+
+决策层 (app_main.c)： 在 10ms 的控制周期内，发现 current_dist < SAFE_DISTANCE。逻辑判断命中，调用 Chassis_Stop()。
+
+控制层 (motion_control.c)： Chassis_Stop() 内部调用 Chassis_Drive(0, 0)。它告诉底层：我现在的目标速度是 0。
+
+执行层 (motor_driver.c)： PID 算法发现当前电机还在转（比如 1000 RPM），而目标是 0。它会立即计算出一个强力反向制动电流。
+
+通讯层 (can.c 驱动)： 最后，生成的控制报文通过 CAN 总线发送出去，电机瞬间停死。
+
+四、 核心数据结构：Motor_Stats 和 Motor_PID
+这是连接所有文件的“数据枢纽”，定义在 motor_driver.h 中。
+
+Motor_Stats[4]：存储了 4 个电机的 RPM、角度、电流。
+
+Motor_PID[4]：存储了每个电机的 Kp, Ki, Kd。
