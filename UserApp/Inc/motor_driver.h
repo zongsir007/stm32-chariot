@@ -4,35 +4,26 @@
 #include "main.h"
 #include "can.h"
 
-// PID 控制器结构体
+/**
+ * @brief 电机状态结构体
+ */
 typedef struct {
-    float kp, ki, kd;
-    float target;        // 目标值
-    float current;       // 当前值
-    float error;         // 偏差
-    float last_error;    // 上次偏差
-    float integral;      // 积分累加
-    float output;        // 计算输出
-    float max_output;    // 输出限幅
-    float max_integral;  // 积分限幅
-} PID_TypeDef;
-
-// 电机状态结构体
-typedef struct {
-    int16_t rpm;          // 实际转速 (来自CAN反馈)
-    int16_t target_rpm;   // 目标转速 (来自控制算法)
-    int16_t torque_current;
-    uint16_t angle;
+    int16_t rpm;            // 实际转速
+    int16_t target_rpm;     // 目标转速
+    int16_t torque_current; // 电流反馈 (步进电机可能映射为负载率)
+    uint16_t angle;         // 角度反馈
 } Motor_Status_t;
 
+// 外部声明
 extern Motor_Status_t Motor_Stats[4];
-extern PID_TypeDef Motor_PID[4];
 
-// 函数声明
-void PID_Init(void);
-float PID_Compute(PID_TypeDef *pid, float target, float current);
-void Motor_Send_Control_Group(int16_t v1, int16_t v2, int16_t v3, int16_t v4);
-void Motor_Stop_All(void);
+/**
+ * @brief 核心驱动函数声明
+ */
 void CAN_Filter_Config(void);
+void Motor_Send_Control_Group(int16_t v1, int16_t v2, int16_t v3, int16_t v4);
+void Motor_Send_Control_Single(uint16_t std_id, int16_t rpm); // 建议也声明单机控制
+void Motor_Stop_All(void);
+void Motor_Enable_All(void);
 
-#endif
+#endif /* __MOTOR_DRIVER_H */

@@ -1,81 +1,127 @@
 #include "config.h"
 #include "motor_driver.h"
 #include "sensor_manager.h"
-#include "servo_control.h"
-#include "motion_control.h" // 修复点 1: 必须包含此头文件以识别 Move_Forward 等函数
+#include "motion_control.h"
 
-/* 全局变量：用于在 Debug 模式下观察数据 */
+/* ==========================================================================
+ * 1. 物理标定数据 (仅需在此处修改，全篇自动生效)
+ * ========================================================================== */
+#define CALIB_LINEAR_SPEED  1500  // 直行参数
+#define CM_PER_1000MS       40.0f // 1500速度下，1秒走多少cm
+
+#define CALIB_ROTATE_SPEED  1000  // 转向参数
+#define MS_PER_90_DEG       1200  // 1000速度下，转90度用时ms
+
+/* --- 换算宏：将物理尺寸转换为毫秒时间 --- */
+// 算法：(目标距离 / 每毫秒走的距离)
+#define DIST_CM(cm)    ((uint32_t)((cm) * (1000.0f / CM_PER_1000MS)))
+#define ANGLE_DEG(deg) ((uint32_t)((deg) * (MS_PER_90_DEG / 90.0f)))
+
+/* ==========================================================================
+ * 2. 全局监控变量
+ * ========================================================================== */
 float current_dist = 100.0f;
-uint8_t line_state = 0;
-
-/**
- * @brief  用户应用初始化
- */
-extern TIM_HandleTypeDef htim2;
+uint32_t g_elapsed = 0;
+uint32_t g_step = 0;
 
 void User_App_Init(void) {
-    // 1. 启动 CAN (带过滤器)
     CAN_Filter_Config();
     HAL_CAN_Start(&CAN_BUS_HANDLE);
     HAL_CAN_ActivateNotification(&CAN_BUS_HANDLE, CAN_IT_RX_FIFO0_MSG_PENDING);
-
-    // 2. 启动 4 路舵机 PWM
-    HAL_TIM_PWM_Start(&SERVO_TIM_HANDLE, SERVO_CH_1);
-    HAL_TIM_PWM_Start(&SERVO_TIM_HANDLE, SERVO_CH_2);
-    HAL_TIM_PWM_Start(&SERVO_TIM_HANDLE, SERVO_CH_3);
-    HAL_TIM_PWM_Start(&SERVO_TIM_HANDLE, SERVO_CH_4);
-
-    // 3. 将所有舵机归位 (90度)
-    Servo_SetAngle(SERVO_CH_1, 90.0f);
-    Servo_SetAngle(SERVO_CH_2, 90.0f);
-
-    // 4. 启动PID
-    PID_Init();
 }
 
-/**
- * @brief  用户主逻辑任务 (由 main.c 循环调用)
- */
 void User_App_Task(void) {
-    static uint32_t last_pid_tick = 0;
+    static uint32_t last_ctrl_tick = 0;
     static uint32_t last_us_tick = 0;
+    static uint32_t start_time = 0;
+
     uint32_t now = HAL_GetTick();
+    if (start_time == 0) start_time = now;
 
-    /* ==========================================================
-     * 任务 1：运动控制 (10ms 周期)
-     * ========================================================== */
-    if (now - last_pid_tick >= PID_PERIOD_MS) {
-        last_pid_tick = now;
-        line_state = Get_Line_Status();
-
-        // 避障逻辑判断
-        if (current_dist > 0.1f && current_dist < SAFE_DISTANCE) {
-            Chassis_Stop(); // 发现障碍物停止
-        }
-        else {
-            switch (line_state) {
-                case 0: // 直行
-                    Move_Forward(1500);
-                    break;
-                case 1: // 左偏，需要向左转修正
-                    Chassis_Drive(1500, 500);
-                    break;
-                case 2: // 右偏，需要向右转修正
-                    Chassis_Drive(1500, -500);
-                    break;
-                default:
-                    Chassis_Stop();
-                    break;
-            }
-        }
-    } // 任务 1 结束
-
-    /* ==========================================================
-     * 任务 2：超声波测距 (60ms 周期)
-     * ========================================================== */
+    // 1. 传感器任务 (防止阻塞)
     if (now - last_us_tick >= 60) {
         last_us_tick = now;
-        // 获取当前距离
-        current_dist = Ultrasonic_GetDistance(US1_TRIG_PORT, US1_TRIG_PIN, US1_ECHO_PORT, US1_ECHO_PIN);
+        current_dist = 100.0f; // 实际测试时换回 Ultrasonic_GetDistance
+        //current_dist = Ultrasonic_GetDistance;
     }
-} // 函数结束
+
+    // 2. 运动控制逻辑
+    if (now - last_ctrl_tick >= 10) {
+        last_ctrl_tick = now;
+
+        if (current_dist < SAFE_DISTANCE) {
+            Chassis_Stop();
+            return;
+        }
+
+        uint32_t elapsed = now - start_time;
+        g_elapsed = elapsed;
+
+        /* --- 定义步长变量 (用于乘法表示) --- */
+        const uint32_t L10 = DIST_CM(10);
+        const uint32_t T90 = ANGLE_DEG(90);
+
+        /* --- 动作阶段时间点计算 (累加法) --- */
+        uint32_t t1  = 4 * L10;                                   // 40cm
+        uint32_t t2  = t1 + 1 * T90;                              // 出门
+        uint32_t t3  = t2 + 20 * L10;                             // 直行200cm
+        uint32_t t4  = t3 + 1 * T90;                              // 转角1
+        uint32_t t5  = t4 + 20 * L10;                             // 直行200cm
+        uint32_t t6  = t5 + 1 * T90;                              // 转角2
+        uint32_t t7  = t6 + 20 * L10;                             // 直行200cm
+        uint32_t t8  = t7 + 1 * T90;                              // 转角3
+        uint32_t t9  = t8 + 12 * L10;                             // 到得分区120cm
+        uint32_t t10 = t9 + 1 * T90;                              // 转向得分区
+        uint32_t t11 = t10+ 4* L10;								  // 进入得分区
+
+        /* === 执行开环剧本 === */
+        if (elapsed < t1) {
+            Move_Forward(CALIB_LINEAR_SPEED);
+            g_step = 1;
+        }
+        else if (elapsed < t2) {
+            Rotate_Right(CALIB_ROTATE_SPEED);
+            g_step = 2;
+        }
+        else if (elapsed < t3) {
+            Move_Forward(CALIB_LINEAR_SPEED);
+            g_step = 3;
+        }
+        else if (elapsed < t4) {
+            Rotate_Left(CALIB_ROTATE_SPEED);
+            g_step = 4;
+        }
+        else if (elapsed < t5) {
+            Move_Forward(CALIB_LINEAR_SPEED);
+            g_step = 5;
+        }
+        else if (elapsed < t6) {
+            Rotate_Left(CALIB_ROTATE_SPEED);
+            g_step = 6;
+        }
+        else if (elapsed < t7) {
+            Move_Forward(CALIB_LINEAR_SPEED);
+            g_step = 7;
+        }
+        else if (elapsed < t8) {
+            Rotate_Left(CALIB_ROTATE_SPEED);
+            g_step = 8;
+        }
+        else if (elapsed < t9) {
+            Move_Forward(CALIB_LINEAR_SPEED);
+            g_step = 9;
+        }
+        else if (elapsed < t10) {
+            Rotate_Right(CALIB_ROTATE_SPEED);
+            g_step = 10;
+        }
+        else if (elapsed < t11) {
+            Move_Forward(CALIB_LINEAR_SPEED);
+            g_step = 11;
+        }
+        else {
+            Chassis_Stop();
+            g_step = 99;
+        }
+    }
+}

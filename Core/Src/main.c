@@ -26,7 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "config.h"
-
+#include "motor_driver.h"
 extern void User_App_Init(void);
 extern void User_App_Task(void);
 /* USER CODE END Includes */
@@ -95,14 +95,16 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
-  User_App_Init(); // 执行UserApp中初始化
+  User_App_Init();    // 执行过滤器配置、CAN 启动等
+  Motor_Enable_All(); // 【修改点】只需在这里使能一次，给电机上锁
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  User_App_Task();	//避障循环
+	  User_App_Task();	  // 避障逻辑内部通常已经包含延时或定时器
+	  HAL_Delay(20);      // 适当增大延时，确保调试器能抢到 CPU 时间片
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -156,21 +158,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-// CAN过滤器，允许接收所有ID的报文
-void CAN_Filter_Config(void) {
-    CAN_FilterTypeDef sFilterConfig; //定义结构体
-    sFilterConfig.FilterBank = 0; //0号过滤器
-    sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;  //标识符掩码模式
-    sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT; //32位屏蔽
-    sFilterConfig.FilterIdHigh = 0x0000;//目标ID
-    sFilterConfig.FilterIdLow = 0x0000;
-    sFilterConfig.FilterMaskIdHigh = 0x0000;//检查ID
-    sFilterConfig.FilterMaskIdLow = 0x0000;
-    sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;//存入FIFO0邮箱
-    sFilterConfig.FilterActivation = ENABLE; //激活过滤器
-    HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig);
-}
 
 /* USER CODE END 4 */
 
